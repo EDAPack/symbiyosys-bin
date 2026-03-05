@@ -6,7 +6,7 @@ PATH_SAV=${PATH}
 if test "x${CI_BUILD}" != "x"; then
     if test $(uname -s) = "Linux"; then
         dnf update -y
-        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake
+        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static
         export PATH=/opt/python/cp312-cp312/bin:$PATH
         rls_plat="manylinux-x64"
     elif test $(uname -s) = "Windows"; then
