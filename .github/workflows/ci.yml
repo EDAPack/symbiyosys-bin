@@ -45,7 +45,7 @@ jobs:
                 --env CI_BUILD
                 --env sby_version
                 --workdir /io
-                quay.io/pypa/manylinux2014_x86_64
+                quay.io/pypa/manylinux_2_34_x86_64
                 /io/scripts/build.sh
             - name: Create Release
               id: create_release

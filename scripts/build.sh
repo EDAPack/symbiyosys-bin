@@ -5,8 +5,8 @@ PATH_SAV=${PATH}
 
 if test "x${CI_BUILD}" != "x"; then
     if test $(uname -s) = "Linux"; then
-        yum update -y
-        yum install -y glibc-static wget flex bison jq readline-static libffi libffi-devel
+        dnf update -y
+        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel
         export PATH=/opt/python/cp312-cp312/bin:$PATH
         rls_plat="manylinux-x64"
     elif test $(uname -s) = "Windows"; then
@@ -56,17 +56,23 @@ fi
 
 cd ${proj}/sby
 make install PREFIX=${release_dir}
+if test $? -ne 0; then exit 1; fi
 
 cd ${proj}
 if test ! -d boolector; then
     git clone https://github.com/boolector/boolector
+    if test $? -ne 0; then exit 1; fi
 fi
 
 cd ${proj}/boolector
 ./contrib/setup-btor2tools.sh
+if test $? -ne 0; then exit 1; fi
 ./contrib/setup-lingeling.sh
+if test $? -ne 0; then exit 1; fi
 ./configure.sh
+if test $? -ne 0; then exit 1; fi
 make -C build -j$(nproc)
+if test $? -ne 0; then exit 1; fi
 cp build/bin/boolector ${release_dir}/bin
 cp build/bin/btorimc ${release_dir}/bin
 cp build/bin/btormbt ${release_dir}/bin
