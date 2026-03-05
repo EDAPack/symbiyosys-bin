@@ -65,6 +65,12 @@ if test ! -d boolector; then
 fi
 
 cd ${proj}/boolector
+# Wrap cmake to handle old CMakeLists.txt files that specify cmake_minimum_required < 3.5
+mkdir -p /tmp/cmake-wrap
+printf '#!/bin/sh\nexec /usr/bin/cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"\n' > /tmp/cmake-wrap/cmake
+chmod +x /tmp/cmake-wrap/cmake
+export PATH=/tmp/cmake-wrap:${PATH}
+
 ./contrib/setup-btor2tools.sh
 if test $? -ne 0; then exit 1; fi
 ./contrib/setup-lingeling.sh
