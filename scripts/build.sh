@@ -64,17 +64,19 @@ if test ! -d boolector; then
     if test $? -ne 0; then exit 1; fi
 fi
 
-# Patch boolector's cmake version (3.3 -> 3.5) before cmake 3.27+ rejects it
-find ${proj}/boolector -name CMakeLists.txt | \
-    xargs sed -i 's/cmake_minimum_required(VERSION 3\.[0-4])/cmake_minimum_required(VERSION 3.5)/g'
+# Create cmake wrapper to inject CMAKE_POLICY_VERSION_MINIMUM=3.5 for all
+# cmake invocations (handles old cmake_minimum_required versions like 3.3).
+# This must be done before setup-btor2tools.sh, which downloads and builds
+# btor2tools (including running cmake) in a single step.
+_cmake_real=$(which cmake)
+CMAKE_WRAPPER_DIR=$(mktemp -d)
+printf '#!/bin/sh\nexec %s -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"\n' "${_cmake_real}" > ${CMAKE_WRAPPER_DIR}/cmake
+chmod +x ${CMAKE_WRAPPER_DIR}/cmake
+export PATH=${CMAKE_WRAPPER_DIR}:${PATH}
 
 cd ${proj}/boolector
 ./contrib/setup-btor2tools.sh
 if test $? -ne 0; then exit 1; fi
-
-# Patch btor2tools cmake version too (extracted by setup-btor2tools.sh)
-find ${proj}/boolector/deps -name CMakeLists.txt | \
-    xargs sed -i 's/cmake_minimum_required(VERSION [0-9]\.[0-9][0-9]*)/cmake_minimum_required(VERSION 3.5)/g'
 
 ./contrib/setup-lingeling.sh
 if test $? -ne 0; then exit 1; fi
