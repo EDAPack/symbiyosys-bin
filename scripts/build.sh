@@ -8,7 +8,10 @@ if test "x${CI_BUILD}" != "x"; then
         dnf update -y
         dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static
         export PATH=/opt/python/cp312-cp312/bin:$PATH
-        rls_plat="manylinux-x64"
+        if test -z $image; then
+            image=manylinux_2_34_x86_64
+        fi
+        rls_plat="${image}"
     elif test $(uname -s) = "Windows"; then
         rls_plat="windows-x64"
     fi

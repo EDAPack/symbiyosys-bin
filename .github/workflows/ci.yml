@@ -7,15 +7,13 @@ on:
     - cron: "0 12 * * 0"
 
 jobs:
-    ci-linux:
+    version-check:
         runs-on: 'ubuntu-latest'
+        outputs:
+            sby_version: ${{ steps.check.outputs.sby_version }}
         steps:
-            - uses: actions/checkout@v4
-            - name: Install Deps
-              run: |
-                sudo apt-get install autoconf bison flex libfl-dev help2man
-            - name: check_is_needed
-              id: is_needed
+            - name: check
+              id: check
               env:
                 BUILD_NUM: ${{ github.run_id }}
               run: |
@@ -25,51 +23,78 @@ jobs:
                     -H "X-GitHub-Api-Version: 2022-11-28" \
                     https://api.github.com/repos/YosysHQ/sby/git/refs/tags | \
                     jq ".[].ref" | sed -e's%refs/tags/%%' -e 's/\"//g'| sort | tail -n 1)
-                echo "bwz_latest_rls: ${bwz_latest_rls}"
                 echo "sby_latest_rls: ${sby_latest_rls}"
                 sby_version=$(echo $sby_latest_rls | sed -e 's/^v//')
                 sby_version="0.48"
 
-                echo "bwz_latest_rls=${bwz_latest_rls}" >> ${GITHUB_OUTPUT}
                 echo "sby_version=${sby_version}.${BUILD_NUM}" >> ${GITHUB_OUTPUT}
+
+    build-linux-x86_64:
+        runs-on: 'ubuntu-latest'
+        needs: version-check
+        strategy:
+          matrix:
+            image: [manylinux2014_x86_64, manylinux_2_28_x86_64, manylinux_2_34_x86_64]
+        steps:
+            - uses: actions/checkout@v4
             - name: build
               env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                 BUILD_NUM: ${{ github.run_id }}
                 CI_BUILD: 1
-                sby_version: ${{ steps.is_needed.outputs.sby_version }}
+                image: ${{ matrix.image }}
+                sby_version: ${{ needs.version-check.outputs.sby_version }}
               run: >
                 docker run --rm
                 --volume "$(pwd):/io"
                 --env BUILD_NUM
                 --env CI_BUILD
+                --env image
                 --env sby_version
                 --workdir /io
-                quay.io/pypa/manylinux_2_34_x86_64
+                quay.io/pypa/${{ matrix.image }}
                 /io/scripts/build.sh
-            - name: Create Release
-              id: create_release
-              uses: actions/create-release@v1
-              env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
-                BUILD_NUM: ${{ github.run_id }}
+            - name: upload artifact
+              uses: actions/upload-artifact@v4
               with:
-                tag_name: "v${{ steps.is_needed.outputs.sby_version }}"
-                release_name: "Release ${{ steps.is_needed.outputs.sby_version }}"
-                body: |
-                  Build of Symbiyosys ${{ steps.is_needed.outputs.sby_version }}
-                draft: false
-                prerelease: false
-            - name: Upload Files
-              uses: actions/upload-release-asset@v1
-              env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                BUILD_NUM: ${{ github.run_id }}
-              with:
-                upload_url: ${{ steps.create_release.outputs.upload_url }}
-                asset_path: "./release/symbiyosys-manylinux-x64-${{ steps.is_needed.outputs.sby_version }}.tar.gz"
-                asset_name: "symbiyoysy-manylinux-x64-${{ steps.is_needed.outputs.sby_version }}.tar.gz"
-                asset_content_type: application/gzip
+                name: "symbiyosys-${{ matrix.image }}"
+                path: "release/symbiyosys-${{ matrix.image }}-*.tar.gz"
+                if-no-files-found: error
+                retention-days: 7
+
+    publish:
+        runs-on: 'ubuntu-latest'
+        needs:
+        - build-linux-x86_64
+        - version-check
+        permissions:
+            contents: write
+        steps:
+        - name: Download build artifacts
+          uses: actions/download-artifact@v4
+          with:
+            pattern: "symbiyosys-*"
+            path: release
+            merge-multiple: true
+        - name: Create Release
+          uses: actions/create-release@v1
+          id: create_release
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            tag_name: "v${{ needs.version-check.outputs.sby_version }}"
+            release_name: "Release ${{ needs.version-check.outputs.sby_version }}"
+            body: |
+              Build of Symbiyosys ${{ needs.version-check.outputs.sby_version }}
+            draft: false
+            prerelease: false
+        - name: Upload assets to release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: "v${{ needs.version-check.outputs.sby_version }}"
+            files: |
+              release/**/*.tar.gz
+            fail_on_unmatched_files: true
     # ci-windows:
     #     runs-on: windows-latest
     #     steps:
