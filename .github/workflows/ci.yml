@@ -34,7 +34,7 @@ jobs:
         needs: version-check
         strategy:
           matrix:
-            image: [manylinux_2_28_x86_64, manylinux_2_34_x86_64]
+            image: [manylinux_2_34_x86_64]
         steps:
             - uses: actions/checkout@v4
             - name: build
