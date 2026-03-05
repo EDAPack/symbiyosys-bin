@@ -64,14 +64,20 @@ if test ! -d boolector; then
     if test $? -ne 0; then exit 1; fi
 fi
 
+# Patch boolector's cmake version (3.3 -> 3.5) before cmake 3.27+ rejects it
+find ${proj}/boolector -name CMakeLists.txt | \
+    xargs sed -i 's/cmake_minimum_required(VERSION 3\.[0-4])/cmake_minimum_required(VERSION 3.5)/g'
+
 cd ${proj}/boolector
 ./contrib/setup-btor2tools.sh
 if test $? -ne 0; then exit 1; fi
+
+# Patch btor2tools cmake version too (extracted by setup-btor2tools.sh)
+find ${proj}/boolector/deps -name CMakeLists.txt | \
+    xargs sed -i 's/cmake_minimum_required(VERSION [0-9]\.[0-9][0-9]*)/cmake_minimum_required(VERSION 3.5)/g'
+
 ./contrib/setup-lingeling.sh
 if test $? -ne 0; then exit 1; fi
-
-# Pass cmake policy flag via CMAKE_OPTS (configure.sh appends this to cmake invocation)
-export CMAKE_OPTS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 ./configure.sh
 if test $? -ne 0; then exit 1; fi
