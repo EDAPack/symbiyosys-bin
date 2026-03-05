@@ -6,7 +6,7 @@ PATH_SAV=${PATH}
 if test "x${CI_BUILD}" != "x"; then
     if test $(uname -s) = "Linux"; then
         dnf update -y
-        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel
+        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake
         export PATH=/opt/python/cp312-cp312/bin:$PATH
         rls_plat="manylinux-x64"
     elif test $(uname -s) = "Windows"; then
@@ -65,14 +65,10 @@ if test ! -d boolector; then
 fi
 
 cd ${proj}/boolector
-# Wrap cmake to handle old CMakeLists.txt files that specify cmake_minimum_required < 3.5
-mkdir -p /tmp/cmake-wrap
-printf '#!/bin/sh\nexec /usr/bin/cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"\n' > /tmp/cmake-wrap/cmake
-chmod +x /tmp/cmake-wrap/cmake
-export PATH=/tmp/cmake-wrap:${PATH}
-
 ./contrib/setup-btor2tools.sh
 if test $? -ne 0; then exit 1; fi
+# Patch btor2tools CMakeLists.txt to be compatible with cmake >= 3.5
+sed -i 's/cmake_minimum_required(VERSION \(.*\))/cmake_minimum_required(VERSION \1...3.31)/' deps/btor2tools/CMakeLists.txt
 ./contrib/setup-lingeling.sh
 if test $? -ne 0; then exit 1; fi
 ./configure.sh
