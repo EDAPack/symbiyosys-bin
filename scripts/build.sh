@@ -5,8 +5,8 @@ PATH_SAV=${PATH}
 
 if test "x${CI_BUILD}" != "x"; then
     if test $(uname -s) = "Linux"; then
-        dnf update -y
-        dnf install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static
+        yum update -y
+        yum install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static
         export PATH=/opt/python/cp312-cp312/bin:$PATH
         if test -z $image; then
             image=manylinux_2_34_x86_64
