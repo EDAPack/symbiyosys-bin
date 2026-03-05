@@ -70,12 +70,8 @@ if test $? -ne 0; then exit 1; fi
 ./contrib/setup-lingeling.sh
 if test $? -ne 0; then exit 1; fi
 
-# Wrap cmake to inject -DCMAKE_POLICY_VERSION_MINIMUM=3.5 for old CMakeLists.txt
-real_cmake=$(which cmake)
-mkdir -p /usr/local/bin
-printf '#!/bin/sh\nexec %s -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"\n' "${real_cmake}" > /usr/local/bin/cmake
-chmod +x /usr/local/bin/cmake
-export PATH=/usr/local/bin:${PATH}
+# Pass cmake policy flag via CMAKE_OPTS (configure.sh appends this to cmake invocation)
+export CMAKE_OPTS="-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 ./configure.sh
 if test $? -ne 0; then exit 1; fi
