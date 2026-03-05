@@ -67,10 +67,16 @@ fi
 cd ${proj}/boolector
 ./contrib/setup-btor2tools.sh
 if test $? -ne 0; then exit 1; fi
-# Patch btor2tools CMakeLists.txt to be compatible with cmake >= 3.5
-sed -i 's/cmake_minimum_required(VERSION \(.*\))/cmake_minimum_required(VERSION \1...3.31)/' deps/btor2tools/CMakeLists.txt
 ./contrib/setup-lingeling.sh
 if test $? -ne 0; then exit 1; fi
+
+# Wrap cmake to inject -DCMAKE_POLICY_VERSION_MINIMUM=3.5 for old CMakeLists.txt
+real_cmake=$(which cmake)
+mkdir -p /usr/local/bin
+printf '#!/bin/sh\nexec %s -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"\n' "${real_cmake}" > /usr/local/bin/cmake
+chmod +x /usr/local/bin/cmake
+export PATH=/usr/local/bin:${PATH}
+
 ./configure.sh
 if test $? -ne 0; then exit 1; fi
 make -C build -j$(nproc)
