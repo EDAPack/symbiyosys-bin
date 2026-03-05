@@ -76,22 +76,15 @@ jobs:
             pattern: "symbiyosys-*"
             path: release
             merge-multiple: true
-        - name: Create Release
-          uses: actions/create-release@v1
-          id: create_release
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        - name: Create release and upload assets
+          uses: softprops/action-gh-release@v2
           with:
             tag_name: "v${{ needs.version-check.outputs.sby_version }}"
-            release_name: "Release ${{ needs.version-check.outputs.sby_version }}"
+            name: "Release ${{ needs.version-check.outputs.sby_version }}"
             body: |
               Build of Symbiyosys ${{ needs.version-check.outputs.sby_version }}
             draft: false
             prerelease: false
-        - name: Upload assets to release
-          uses: softprops/action-gh-release@v2
-          with:
-            tag_name: "v${{ needs.version-check.outputs.sby_version }}"
             files: |
               release/**/*.tar.gz
             fail_on_unmatched_files: true
