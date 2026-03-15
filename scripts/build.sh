@@ -47,6 +47,25 @@ if test "x${CI_BUILD}" != "x"; then
             ldconfig
             cd ${root}
         fi
+
+        # Bitwuzla requires MPFR >= 4.2.1; manylinux images ship 4.1.x.
+        # Build MPFR 4.2.1 from source if needed (depends on GMP, built above).
+        mpfr_ver=$(pkg-config --modversion mpfr 2>/dev/null || echo "0.0.0")
+        mpfr_major=$(echo "$mpfr_ver" | cut -d. -f1)
+        mpfr_minor=$(echo "$mpfr_ver" | cut -d. -f2)
+        mpfr_patch=$(echo "$mpfr_ver" | cut -d. -f3)
+        if test "$mpfr_major" -lt 4 || { test "$mpfr_major" -eq 4 && test "$mpfr_minor" -lt 2; } || { test "$mpfr_major" -eq 4 && test "$mpfr_minor" -eq 2 && test "${mpfr_patch:-0}" -lt 1; }; then
+            echo "MPFR $mpfr_ver too old, building MPFR 4.2.1 from source"
+            wget -q https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz
+            tar xJf mpfr-4.2.1.tar.xz
+            cd mpfr-4.2.1
+            ./configure --prefix=/usr/local --with-gmp=/usr/local --enable-shared --enable-static
+            if test $? -ne 0; then exit 1; fi
+            make -j$(nproc) install
+            if test $? -ne 0; then exit 1; fi
+            ldconfig
+            cd ${root}
+        fi
     elif test $(uname -s) = "Windows"; then
         rls_plat="windows-x64"
     fi
