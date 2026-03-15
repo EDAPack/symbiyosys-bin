@@ -123,7 +123,8 @@ cd ${proj}
 # Fix rpath on the bitwuzla binary and its shared libraries so that dependent
 # libraries (libgmp, libmpfr, and bitwuzla's own sub-libraries) are found
 # relative to the binary's install location at runtime.
-bwz_libdir=${release_dir}/lib/x86_64-linux-gnu
+# Meson installs libs into a multiarch subdirectory; detect it dynamically.
+bwz_libdir=$(find ${release_dir}/lib -name "libbitwuzla.so.0" 2>/dev/null | head -1 | xargs -r dirname)
 
 # Copy libgmp and libmpfr into the release lib directory so the package is
 # self-contained on systems where those libraries may differ or be absent.
@@ -134,8 +135,9 @@ for lib in libgmp.so libgmp.so.10 libmpfr.so libmpfr.so.6; do
     fi
 done
 
-# bitwuzla binary: libraries live in ../lib/x86_64-linux-gnu relative to bin/
-patchelf --set-rpath '$ORIGIN/../lib/x86_64-linux-gnu' ${release_dir}/bin/bitwuzla
+# bitwuzla binary: libraries live in ../lib/<multiarch> relative to bin/
+bwz_librel=$(echo "$bwz_libdir" | sed "s|${release_dir}/||")
+patchelf --set-rpath "\$ORIGIN/../${bwz_librel}" ${release_dir}/bin/bitwuzla
 if test $? -ne 0; then exit 1; fi
 
 # Each bitwuzla .so: sibling libs are in the same directory

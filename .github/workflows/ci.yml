@@ -29,14 +29,19 @@ jobs:
 
                 echo "sby_version=${sby_version}.${BUILD_NUM}" >> ${GITHUB_OUTPUT}
 
-    build-linux-x86_64:
+    build-linux:
         runs-on: 'ubuntu-latest'
         needs: version-check
         strategy:
           matrix:
-            image: [manylinux_2_34_x86_64]
+            image: [manylinux_2_34_x86_64, manylinux_2_28_x86_64, manylinux_2_28_aarch64]
         steps:
             - uses: actions/checkout@v4
+            - name: Set up QEMU (for aarch64 builds)
+              if: contains(matrix.image, 'aarch64')
+              uses: docker/setup-qemu-action@v3
+              with:
+                platforms: arm64
             - name: build
               env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,7 +70,7 @@ jobs:
     publish:
         runs-on: 'ubuntu-latest'
         needs:
-        - build-linux-x86_64
+        - build-linux
         - version-check
         permissions:
             contents: write
