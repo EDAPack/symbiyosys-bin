@@ -12,6 +12,23 @@ if test "x${CI_BUILD}" != "x"; then
             image=manylinux_2_34_x86_64
         fi
         rls_plat="${image}"
+
+        # Yosys requires bison >= 3.6; manylinux_2_28 only ships 3.0.4.
+        # Build a newer bison from source if needed.
+        bison_ver=$(bison --version | head -1 | sed 's/[^0-9.]//g')
+        bison_major=$(echo "$bison_ver" | cut -d. -f1)
+        bison_minor=$(echo "$bison_ver" | cut -d. -f2)
+        if test "$bison_major" -lt 3 || { test "$bison_major" -eq 3 && test "$bison_minor" -lt 6; }; then
+            echo "bison $bison_ver too old, building bison 3.8.2 from source"
+            wget -q https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.gz
+            tar xzf bison-3.8.2.tar.gz
+            cd bison-3.8.2
+            ./configure --prefix=/usr/local
+            if test $? -ne 0; then exit 1; fi
+            make -j$(nproc) install
+            if test $? -ne 0; then exit 1; fi
+            cd ${root}
+        fi
     elif test $(uname -s) = "Windows"; then
         rls_plat="windows-x64"
     fi
