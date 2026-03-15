@@ -6,7 +6,7 @@ PATH_SAV=${PATH}
 if test "x${CI_BUILD}" != "x"; then
     if test $(uname -s) = "Linux"; then
         yum update -y
-        yum install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static
+        yum install -y wget flex bison jq readline readline-devel libffi libffi-devel tcl tcl-devel python3-devel zlib-devel cmake glibc-static gmp-devel mpfr-devel patchelf ninja-build
         export PATH=/opt/python/cp312-cp312/bin:$PATH
         if test -z $image; then
             image=manylinux_2_34_x86_64
@@ -97,36 +97,55 @@ cp deps/btor2tools/build/bin/btorsim ${release_dir}/bin
 
 cd ${proj}
 
-#if test ! -f ${bwz_latest_rls}.tar.gz; then
-#    wget https://github.com/bitwuzla/bitwuzla/archive/refs/tags/${bwz_latest_rls}.tar.gz
-#    if test $? -ne 0; then exit 1; fi
-#fi
-
-
 #********************************************************************
 #* Build Bitwuzla
 #********************************************************************
-#cd ${root}
-#bwz_version=${bwz_latest_rls}
-#if test -d bitwuzla-${bwz_version}; then
-#    rm -rf bitwuzla-${bwz_version}
-#fi
+if test ! -d bitwuzla; then
+    git clone https://github.com/bitwuzla/bitwuzla
+    if test $? -ne 0; then exit 1; fi
+fi
 
-#tar xvzf ${bwz_latest_rls}.tar.gz
-#if test $? -ne 0; then exit 1; fi
+cd ${proj}/bitwuzla
+export PATH=${root}/py/bin:${PATH}
 
-#export PATH=${root}/py/bin:${PATH}
+./configure.py --shared --wipe --prefix ${release_dir}
+if test $? -ne 0; then exit 1; fi
 
-#cd bitwuzla-${bwz_version}
-#./configure.py --prefix ${release_dir}
-#if test $? -ne 0; then exit 1; fi
-#cd build
-#meson compile
-#if test $? -ne 0; then exit 1; fi
-#meson install
-#if test $? -ne 0; then exit 1; fi
+cd build
+ninja
+if test $? -ne 0; then exit 1; fi
 
-# PATH=${PATH_SAV}
+ninja install
+if test $? -ne 0; then exit 1; fi
+
+cd ${proj}
+
+# Fix rpath on the bitwuzla binary and its shared libraries so that dependent
+# libraries (libgmp, libmpfr, and bitwuzla's own sub-libraries) are found
+# relative to the binary's install location at runtime.
+bwz_libdir=${release_dir}/lib/x86_64-linux-gnu
+
+# Copy libgmp and libmpfr into the release lib directory so the package is
+# self-contained on systems where those libraries may differ or be absent.
+for lib in libgmp.so libgmp.so.10 libmpfr.so libmpfr.so.6; do
+    src=$(ldconfig -p | awk -v l="$lib" '$1 == l { print $NF; exit }')
+    if test -f "$src"; then
+        cp -L "$src" ${bwz_libdir}/
+    fi
+done
+
+# bitwuzla binary: libraries live in ../lib/x86_64-linux-gnu relative to bin/
+patchelf --set-rpath '$ORIGIN/../lib/x86_64-linux-gnu' ${release_dir}/bin/bitwuzla
+if test $? -ne 0; then exit 1; fi
+
+# Each bitwuzla .so: sibling libs are in the same directory
+for lib in ${bwz_libdir}/libbitwuzla*.so*; do
+    if test -f "$lib" && test ! -L "$lib"; then
+        patchelf --set-rpath '$ORIGIN' "$lib"
+    fi
+done
+
+export PATH=${PATH_SAV}
 
 #********************************************************************
 #* Create release tarball
