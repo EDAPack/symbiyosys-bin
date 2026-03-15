@@ -29,6 +29,24 @@ if test "x${CI_BUILD}" != "x"; then
             if test $? -ne 0; then exit 1; fi
             cd ${root}
         fi
+
+        # Bitwuzla requires GMP >= 6.3; manylinux images ship 6.2.x.
+        # Build GMP 6.3.0 from source if needed.
+        gmp_ver=$(pkg-config --modversion gmp 2>/dev/null || echo "0.0.0")
+        gmp_major=$(echo "$gmp_ver" | cut -d. -f1)
+        gmp_minor=$(echo "$gmp_ver" | cut -d. -f2)
+        if test "$gmp_major" -lt 6 || { test "$gmp_major" -eq 6 && test "$gmp_minor" -lt 3; }; then
+            echo "GMP $gmp_ver too old, building GMP 6.3.0 from source"
+            wget -q https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
+            tar xJf gmp-6.3.0.tar.xz
+            cd gmp-6.3.0
+            ./configure --prefix=/usr/local --enable-shared --enable-static
+            if test $? -ne 0; then exit 1; fi
+            make -j$(nproc) install
+            if test $? -ne 0; then exit 1; fi
+            ldconfig
+            cd ${root}
+        fi
     elif test $(uname -s) = "Windows"; then
         rls_plat="windows-x64"
     fi
