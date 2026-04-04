@@ -206,6 +206,7 @@ export PATH=${PATH_SAV}
 #********************************************************************
 #* Create release tarball
 #********************************************************************
+cp ${proj}/scripts/export.envrc ${release_dir}/
 cd ${root}/release
 
 
