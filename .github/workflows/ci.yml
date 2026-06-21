@@ -2,9 +2,6 @@ name: CI
 on:
   push:
   workflow_dispatch:
-  schedule:
-    # Every Sunday at 12PM UTC
-    - cron: "0 12 * * 0"
 
 jobs:
     version-check:
