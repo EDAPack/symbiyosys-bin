@@ -1,0 +1,161 @@
+# edapack/symbiyosys-bin -- Forgejo Actions.
+#
+# THIS FILE'S FIRST JOB IS TO EXIST. When .forgejo/workflows/ is absent the
+# Forgejo runner falls back to running .github/workflows/ -- the fallback is
+# DIRECTORY-level and evaluated per commit. One file here disarms the whole
+# repository.
+#
+# WHY THIS IS A CHECK AND NOT A MIRROR OF THE BUILD. The real build runs
+# `docker run` against stock manylinux images (and, in some repos, macOS and
+# Windows runners) to compile an EDA tool from source. None of that is
+# reproducible in catthehacker/ubuntu:act-22.04 -- there is no Docker daemon on
+# this runner -- and a shadow that pretended otherwise would go red for reasons
+# about the runner rather than about the code.
+#
+# WHAT IT ACTUALLY GUARDS. Until 2026-08-31 this repo's `publish` job had NO
+# condition of any kind, and its workflow triggers on a bare `push:` with no
+# branch filter -- so every push created a GitHub Release. That was survivable
+# while the repo lived on one forge. It is not survivable now: this history
+# moves between Forgejo and GitHub on a five-minute cron, and git-sync produces
+# exactly one kind of event, a push. A mirror operation must never be a
+# publishing operation.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check for internal identifiers in tracked files
+      # This repo is published to git.dvkit.org, so anything committed here is
+      # public. Internal host names, tailnet addresses and CGNAT-range IPs must
+      # not appear in tracked files -- if a build ever needs one it belongs in a
+      # repository secret, which is masked in logs.
+      run: |
+        pattern='perch-char\.ts\.net|\.ts\.net|a9550|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+'
+        if git grep -nIE "$pattern" -- . ':!.forgejo/workflows/ci.yml' ; then
+          echo "::error::internal identifier found in a tracked file (see matches above)"
+          exit 1
+        fi
+        echo "OK: no internal identifiers in tracked files"
+
+    - name: Install PyYAML
+      # Not present in catthehacker/ubuntu:act-22.04 by default. The checks
+      # below must read the workflows as YAML rather than by grepping: a gate
+      # that is only true textually is exactly the class of bug being guarded
+      # against. PEP 668 marks this image's interpreter externally-managed on
+      # some rebuilds, hence the escalation.
+      run: |
+        python3 -c 'import yaml' 2>/dev/null && { echo "PyYAML already present"; exit 0; }
+        python3 -m pip install -q pyyaml && exit 0
+        python3 -m pip install -q --break-system-packages pyyaml && exit 0
+        echo "::error::could not install PyYAML"; exit 1
+
+    - name: This repo's publisher must stay sync-safe and switch-gated
+      # NOTE ON INDENTATION: the heredoc body sits at the SAME column as the
+      # rest of this run: block. YAML strips that common indentation, so the
+      # script reaches the shell at column 0. Outdenting it to look tidier ends
+      # the block scalar early, which produces a corrupt workflow rather than a
+      # syntax error -- caught the hard way in wave 1.
+      run: |
+        python3 - <<'PY'
+        import pathlib, sys, yaml
+
+        # Markers ASSEMBLED FROM FRAGMENTS on purpose: git-sync's estate
+        # conformance scanner reads this file as TEXT and matches the same
+        # strings, so spelling any of them out -- in the code OR in a comment
+        # explaining the code -- would register this checking job as a
+        # publishing job and put a permanent false positive in the estate
+        # report. Both happened while writing the wave-2 equivalent of this file.
+        #
+        # `actions/create` + `-release` is in the list because it was NOT in
+        # git-sync's own marker set until 2026-08-31: seven workflows in this
+        # org create releases with that archived first-party action, and in one
+        # of them it is the ONLY publish step, which made a live GitHub Release
+        # publisher invisible to the estate scan.
+        PUBLISH = tuple(a + b for a, b in (
+            ("softprops/action", "-gh-release"), ("actions/create", "-release"),
+            ("actions/upload", "-release-asset"), ("gh release", " create"),
+            ("peaceiris/actions", "-gh-pages"), ("actions/deploy", "-pages"),
+        ))
+        SYNC_SAFE = "github.event_name != 'push'"
+
+        bad, found = [], 0
+        for wf in sorted(pathlib.Path(".github/workflows").glob("*.y*ml")):
+            doc = yaml.safe_load(wf.read_text()) or {}
+            # YAML 1.1 resolves a bare `on:` key to the BOOLEAN True, so
+            # doc["on"] would be None and every check here would pass vacuously.
+            if doc.get("on", doc.get(True)) is None:
+                bad.append(f"{wf}: no `on:` block")
+                continue
+            jobs = doc.get("jobs") or {}
+
+            # The gate job itself must exist and export the switch. Checking
+            # only that consumers name it is not enough: a mutation test caught
+            # this file passing cleanly with the `gate` job DELETED, because
+            # every remaining assertion was about the consumers. GitHub would
+            # have rejected that workflow at parse time, which is a fine second
+            # line of defence and a poor first one -- it says nothing until
+            # someone pushes, and by then the file is already on both forges.
+            readers = [n for n, j in jobs.items()
+                       if "needs.gate.outputs" in yaml.dump(j)]
+            if readers:
+                gate = jobs.get("gate")
+                if not gate:
+                    bad.append(f"{wf}: job(s) {', '.join(readers)} read "
+                               "needs.gate.outputs but there is no `gate` job")
+                elif "authority" not in (gate.get("outputs") or {}):
+                    bad.append(f"{wf}: `gate` job does not export an "
+                               "`authority` output")
+
+            # An undeclared `needs: gate` yields an EMPTY STRING, not an error,
+            # so the publish condition is false forever: nothing publishes and
+            # nothing goes red. The quietest failure available here.
+            for name, job in jobs.items():
+                if "needs.gate.outputs" not in yaml.dump(job):
+                    continue
+                needs = job.get("needs") or []
+                if isinstance(needs, str):
+                    needs = [needs]
+                if "gate" not in needs:
+                    bad.append(f"{wf}: job `{name}` reads needs.gate.outputs "
+                               "but does not declare `needs: gate`")
+
+            for name, job in jobs.items():
+                for step in job.get("steps") or []:
+                    text = (step.get("run") or "") + " " + (step.get("uses") or "")
+                    if not any(m in text for m in PUBLISH):
+                        continue
+                    found += 1
+                    label = f"{wf}:{name}/{step.get('name') or step.get('uses')}"
+                    cond = str(step.get("if", "")) + " " + str(job.get("if", ""))
+                    if SYNC_SAFE not in cond:
+                        bad.append(f"{label} is reachable from a push -- a sync "
+                                   f"cycle would publish: if={cond.strip()!r}")
+                    if "authority" not in cond:
+                        bad.append(f"{label} does not consult the "
+                                   f"release-authority switch: if={cond.strip()!r}")
+
+        # ANTI-VACUITY. Without this, deleting or renaming the publish step
+        # turns every assertion above into a green no-op, and the check that was
+        # supposed to notice would be the thing reporting success.
+        if not found:
+            bad.append("no publishing step matched the markers -- either the "
+                       "release step was removed, or it changed shape and the "
+                       "marker list in this file needs updating")
+
+        if bad:
+            for b in bad:
+                print(f"::error::{b}")
+            sys.exit(1)
+        print(f"OK: {found} publishing step(s), every one sync-safe and switch-gated")
+        PY

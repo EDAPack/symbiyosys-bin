@@ -4,6 +4,57 @@ on:
   workflow_dispatch:
 
 jobs:
+    # ------------------------------------------------------------------ #
+    # gate: the release master switch. ONE file, above both forges, decides
+    # who may publish this repo:
+    #     https://dvkit.org/.well-known/release-authority.json
+    # It is generated from sync-policy.toml by `git-sync emit-release-authority`,
+    # so GitHub and Forgejo cannot drift -- there is only one copy for them to
+    # disagree about. The runner only READS it, over plain HTTPS with no
+    # credential: a workflow file is public and editable by anyone who can
+    # push, so a secret here would protect nothing.
+    #
+    # `if:` on a job cannot reference a step in its own job, which is why the
+    # switch is resolved here and consumed through needs.gate.outputs.authority
+    # -- and why `publish` must declare `needs: gate`. OMIT THAT AND THE
+    # EXPRESSION IS AN EMPTY STRING, not an error: nothing publishes, nothing
+    # goes red, and the repo quietly stops releasing.
+    # ------------------------------------------------------------------ #
+    gate:
+        name: Release authority
+        runs-on: 'ubuntu-latest'
+        outputs:
+            authority: ${{ steps.resolve.outputs.authority }}
+        steps:
+        - id: resolve
+          # The python is ONE LINE on purpose: a multi-line `python3 -c` body
+          # has to start at column 0, which ends the YAML block scalar above it
+          # and silently corrupts the workflow rather than failing to parse.
+          run: |
+            url=https://dvkit.org/.well-known/release-authority.json
+            if ! body=$(curl -fsS --max-time 10 "$url"); then
+              # DECIDED 2026-08-30: fail CLOSED when a release could actually
+              # happen. A release blocked by a dvkit.org outage is recoverable
+              # in ten minutes; a release published twice from two forges is
+              # not -- a GitHub Release can be deleted, but the artifacts people
+              # already downloaded cannot be recalled.
+              #
+              # Here "could actually happen" is any event that is not a push,
+              # because a push never publishes in this repo (see `publish`).
+              case "$GITHUB_EVENT_NAME" in
+                push)
+                  echo "authority=none" >> "$GITHUB_OUTPUT"
+                  echo "switch unreachable on a push; nothing to release"
+                  exit 0 ;;
+                *)
+                  echo "::error::release-authority switch unreachable; refusing to publish"
+                  exit 1 ;;
+              esac
+            fi
+            auth=$(printf '%s' "$body" | python3 -c 'import json,os,sys; d=json.load(sys.stdin); r=os.environ["GITHUB_REPOSITORY"]; print(d["repos"].get(r) or d["orgs"].get(r.split("/")[0]) or d["default"])')
+            echo "release authority for $GITHUB_REPOSITORY: $auth"
+            echo "authority=$auth" >> "$GITHUB_OUTPUT"
+
     version-check:
         runs-on: 'ubuntu-latest'
         outputs:
@@ -65,10 +116,43 @@ jobs:
                 retention-days: 7
 
     publish:
+        # TWO conditions, each load-bearing for a different reason.
+        #
+        #   github.event_name != 'push'
+        #       SYNC SAFETY. This repo's history now moves between Forgejo and
+        #       GitHub on a five-minute cron, and git-sync produces exactly one
+        #       kind of event: a push. Until 2026-08-31 this job had NO
+        #       condition at all and the workflow triggers on a bare `push:`
+        #       with no branch filter -- so a sync cycle was a release trigger,
+        #       and a mirror operation must never be a publishing operation.
+        #
+        #       DELIBERATE DEVIATION from adding-orgs.md §E2.2, which requires a
+        #       `v*` tag and nothing else. That rule is written for repos where
+        #       a human pushes the tag and the tag IS the version. Here the tag
+        #       is COMPUTED from the upstream version and created BY this job --
+        #       it is a release's output, not its trigger -- so tag-gating a job
+        #       whose purpose is to create the tag is unsatisfiable rather than
+        #       stricter. The property §E2.2 protects is the one on the line
+        #       above, and excluding the one event a mirror can produce delivers
+        #       it exactly. `schedule` and `workflow_dispatch` still publish;
+        #       neither is something a mirror performs.
+        #
+        #       COST: a recipe commit no longer produces a release. The build
+        #       still runs on push, which is the whole value of push CI here.
+        #
+        #   authority == 'github'
+        #       So that with the same workflow present on both forges, only one
+        #       of them publishes. SKIPS rather than fails when the switch names
+        #       Forgejo: a deliberate handover must not look like a broken
+        #       pipeline.
+        if: >-
+            github.event_name != 'push' &&
+            needs.gate.outputs.authority == 'github'
         runs-on: 'ubuntu-latest'
         needs:
         - build-linux
         - version-check
+        - gate
         permissions:
             contents: write
         steps:
